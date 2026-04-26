@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+.env
+.env.*
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Local DolphinDB / secrets（复制 config.example.py 为 config.py 后修改）
+config.py
+
+# Local / cache
+.ddb_ticker_cache/
+*.log
+
+# Optional: import progress (uncomment if you do not want it in repo)
+# massive_import_checkpoint.json
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*~
+
+# Cursor / local tooling
+.cursor/
+
+# Bundled deps (if recreated locally)
+.vendor/
+
+# OS
+.DS_Store
+Thumbs.db

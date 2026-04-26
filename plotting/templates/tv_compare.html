@@ -1,0 +1,499 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>__PAGE_TITLE__</title>
+  <!-- TradingView Lightweight Charts™: https://www.tradingview.com/lightweight-charts/ -->
+  <script src="/static/lightweight-charts.standalone.production.js"></script>
+  <style>
+    body { margin: 0; font-family: Arial, sans-serif; background: #131722; color: #d1d4dc; }
+    .wrap { padding: 10px 12px; }
+    .header { margin-bottom: 8px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .controls { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin-bottom: 6px; font-size: 12px; }
+    .controls label { color: #868993; margin-right: 6px; }
+    .controls select, .controls button {
+      background: #1e222d; color: #d1d4dc; border: 1px solid #3b3f4a; border-radius: 6px;
+      padding: 4px 8px; font-size: 12px;
+    }
+    .range-bar { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+    .range-bar .hint { color: #868993; margin-right: 4px; }
+    .range-bar button { border-radius: 4px; padding: 3px 9px; font-size: 11px; cursor: pointer; }
+    .range-bar button:hover { border-color: #5d606b; }
+    .range-bar button.active { border-color: #4da3ff; color: #4da3ff; }
+    .chip { border: 1px solid #3b3f4a; border-radius: 999px; padding: 4px 10px; font-size: 12px; }
+    .legend-row {
+      display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-bottom: 8px; padding: 8px 10px;
+      background: #1e222d; border: 1px solid #2a2e39; border-radius: 8px; font-size: 12px;
+    }
+    .legend-row .title { color: #868993; margin-right: 4px; }
+    .leg-item { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+    .leg-item input { accent-color: #4da3ff; }
+    .leg-item .sw { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+    .panel { border: 1px solid #2a2e39; border-radius: 8px; background: #1e222d; }
+    #mainChart { width: 100%; height: min(88vh, 920px); min-height: 420px; }
+    .attrib { margin: 10px 0 0; font-size: 11px; color: #5d606b; text-align: center; }
+    .attrib a { color: #868993; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="header" id="header"></div>
+    <div class="controls" id="controls"></div>
+    <div class="legend-row" id="compareLegend"></div>
+    <div class="panel"><div id="mainChart"></div></div>
+    <p class="attrib">图表引擎：
+      <a href="https://github.com/tradingview/lightweight-charts" target="_blank" rel="noopener noreferrer">Lightweight Charts™</a>
+      · <a href="https://www.tradingview.com/lightweight-charts/" target="_blank" rel="noopener noreferrer">TradingView</a>
+    </p>
+  </div>
+  <script>
+    function removeSeriesCompat(chart, series) {
+      if (!chart || !series) return;
+      if (typeof chart.removeSeries === 'function') chart.removeSeries(series);
+    }
+
+    function addSeriesCompat(chart, type, options) {
+      if (!chart) return null;
+      const L = typeof LightweightCharts !== 'undefined' ? LightweightCharts : null;
+      if (typeof chart.addSeries === 'function' && L) {
+        if (type === 'line' && L.LineSeries) return chart.addSeries(L.LineSeries, options);
+        if (type === 'area' && L.AreaSeries) return chart.addSeries(L.AreaSeries, options);
+        if (type === 'baseline' && L.BaselineSeries) return chart.addSeries(L.BaselineSeries, options);
+        if (type === 'bar' && L.BarSeries) return chart.addSeries(L.BarSeries, options);
+        if (type === 'candlestick' && L.CandlestickSeries) return chart.addSeries(L.CandlestickSeries, options);
+        if (type === 'histogram' && L.HistogramSeries) return chart.addSeries(L.HistogramSeries, options);
+      }
+      if (type === 'line' && typeof chart.addLineSeries === 'function') return chart.addLineSeries(options);
+      if (type === 'candlestick' && typeof chart.addCandlestickSeries === 'function') return chart.addCandlestickSeries(options);
+      if (type === 'histogram' && typeof chart.addHistogramSeries === 'function') return chart.addHistogramSeries(options);
+      return null;
+    }
+
+    function barsFromValuePoints(pts) {
+      return (pts || []).map((p) => ({
+        time: p.time,
+        open: p.value,
+        high: p.value,
+        low: p.value,
+        close: p.value,
+      }));
+    }
+
+    /** 蜡烛图涨跌色：涨用系列色，跌用同色系压暗 */
+    function candlePairColors(hex) {
+      const c = hex && hex[0] === '#' ? hex : '#4da3ff';
+      const n = parseInt(c.slice(1, 7), 16);
+      const r = (n >> 16) & 255;
+      const g = (n >> 8) & 255;
+      const b = n & 255;
+      const f = 0.55;
+      const down = '#' + [r, g, b].map((x) => Math.round(x * f).toString(16).padStart(2, '0')).join('');
+      return {
+        upColor: c,
+        downColor: down,
+        wickUpColor: c,
+        wickDownColor: down,
+        borderVisible: false,
+      };
+    }
+
+    function compareOptsForKind(kind, color, title, visible) {
+      const vis = visible !== false;
+      if (kind === 'line') return { color, lineWidth: 2, title, visible: vis };
+      if (kind === 'area') {
+        return {
+          lineColor: color,
+          topColor: color + '55',
+          bottomColor: color + '12',
+          lineWidth: 2,
+          title,
+          visible: vis,
+        };
+      }
+      if (kind === 'baseline') {
+        return {
+          baseValue: { type: 'price', price: 100 },
+          topLineColor: color,
+          bottomLineColor: color,
+          topFillColor1: color + '66',
+          topFillColor2: color + '18',
+          bottomFillColor1: color + '18',
+          bottomFillColor2: color + '66',
+          lineWidth: 2,
+          title,
+          visible: vis,
+        };
+      }
+      if (kind === 'bar') {
+        return { upColor: color, downColor: color, thinBars: true, title, visible: vis };
+      }
+      if (kind === 'candlestick') {
+        return { ...candlePairColors(color), title, visible: vis };
+      }
+      return { color, lineWidth: 2, title, visible: vis };
+    }
+
+    function compareSeriesKindSupported(kind) {
+      const L = typeof LightweightCharts !== 'undefined' ? LightweightCharts : null;
+      if (!L) return kind === 'line';
+      const map = {
+        line: 'LineSeries',
+        area: 'AreaSeries',
+        baseline: 'BaselineSeries',
+        bar: 'BarSeries',
+        candlestick: 'CandlestickSeries',
+      };
+      const k = map[kind];
+      return !k || !!L[k];
+    }
+
+    function setCompareSeriesData(series, kind, points) {
+      if (!series || typeof series.setData !== 'function') return;
+      if (kind === 'bar') series.setData(barsFromValuePoints(points));
+      else if (kind === 'candlestick') series.setData(points || []);
+      else series.setData(points || []);
+    }
+
+    async function main() {
+      const r = await fetch('/api/data');
+      const data = await r.json();
+      if (!data || !data.meta) throw new Error('empty payload');
+      const meta = data.meta;
+      const hd = document.getElementById('header');
+      hd.innerHTML = `<span class="chip">table: ${meta.table}</span><span class="chip">days: ${meta.days}</span><span class="chip">bars/ticker: ${meta.bars}</span>` +
+        meta.tickers.map(t => `<span class="chip">${t}</span>`).join('');
+
+      const compareBuckets = data.compare || { high: {}, low: {}, close: data.compare_series || {} };
+      const compareCandlesByTicker = data.compare_candles || {};
+      const candleMap = data.candles_by_ticker || {};
+      const tickerList = meta.tickers || [];
+      const colors = ['#4da3ff','#f5a623','#26a69a','#ef5350','#a970ff','#00c2ff'];
+
+      const legendVisibility = {};
+      tickerList.forEach((t) => { legendVisibility[t] = true; });
+
+      const intraday = !!meta.intraday;
+      const rangeSeconds = Object.assign(
+        {
+          '1D': 86400,
+          '1W': 86400 * 7,
+          '1M': 86400 * 30,
+          '3M': 86400 * 90,
+          '1Y': 86400 * 365,
+        },
+        intraday
+          ? { '5m': 300, '15m': 900, '1H': 3600, '4H': 14400, '12H': 43200 }
+          : {},
+      );
+      const rangeOrder = intraday
+        ? ['5m', '15m', '1H', '4H', '12H', '1D', '1W', '1M', '3M', '1Y', 'all']
+        : ['1D', '1W', '1M', '3M', '1Y', 'all'];
+      const rangeBarBtns = rangeOrder
+        .map((k) =>
+          k === 'all'
+            ? '<button type="button" data-range="all" class="active">全</button>'
+            : `<button type="button" data-range="${k}">${k}</button>`,
+        )
+        .join('');
+
+      const ctl = document.getElementById('controls');
+      ctl.innerHTML = `
+        <div><label for="cmpMode">对比数据</label>
+          <select id="cmpMode" title="对比选「蜡烛图」时为归一 OHLC（首收=100），此项不切换蜡烛实体；线/面积/柱状等仍按此项用高、低或收">
+            <option value="high">最高价（归一）</option>
+            <option value="low">最低价（归一）</option>
+            <option value="close" selected>收盘（归一）</option>
+          </select></div>
+        <div><label for="cmpChartKind">对比类型</label>
+          <select id="cmpChartKind">
+            <option value="line" selected>线</option>
+            <option value="candlestick">蜡烛图</option>
+            <option value="area">面积</option>
+            <option value="baseline">基准</option>
+            <option value="bar">柱状</option>
+          </select></div>
+        <div><label for="volumeChartKind">成交量</label>
+          <select id="volumeChartKind" title="各标的叠加显示，颜色与上方图例一致">
+            <option value="histogram" selected>柱状</option>
+            <option value="line">线</option>
+          </select></div>
+        <div class="range-bar">
+          <span class="hint">范围</span>
+          ${rangeBarBtns}
+        </div>`;
+
+      const cmpModeEl = document.getElementById('cmpMode');
+      const cmpChartKindEl = document.getElementById('cmpChartKind');
+      const volumeChartKindEl = document.getElementById('volumeChartKind');
+
+      const leg = document.getElementById('compareLegend');
+      leg.title = '单击勾选可同时隐藏/显示该标的对比曲线与成交量';
+      leg.innerHTML = '<span class="title">系列对比</span>' + tickerList.map((t, i) =>
+        `<label class="leg-item"><input type="checkbox" data-ticker="${t}" checked><span class="sw" style="background:${colors[i % colors.length]}"></span>${t}</label>`
+      ).join('');
+
+      const common = {
+        layout: {
+          background: { color: '#1e222d' },
+          textColor: '#d1d4dc',
+          attributionLogo: true,
+        },
+        grid: { vertLines: { color: '#2a2e39' }, horzLines: { color: '#2a2e39' } },
+        /* 分钟线根数多时，默认 minBarSpacing=0.5 会限制「最远只能缩到」约半屏像素/0.5 根，看起来像只能看到一两天 */
+        timeScale: Object.assign(
+          { borderColor: '#2a2e39', timeVisible: true },
+          intraday
+            ? { minBarSpacing: 0.001, enableConflation: true }
+            : {},
+        ),
+        rightPriceScale: { borderColor: '#2a2e39', visible: false },
+        leftPriceScale: { borderColor: '#2a2e39', visible: true },
+        handleScale: {
+          mouseWheel: true,
+          pinch: true,
+          axisPressedMouseMove: { time: false, price: true },
+        },
+      };
+
+      const chartEl = document.getElementById('mainChart');
+      const chart = LightweightCharts.createChart(chartEl, {
+        ...common,
+        width: chartEl.clientWidth,
+        height: chartEl.clientHeight,
+      });
+      /** 单图共享时间轴：对比序列用左侧价轴（归一）；底部仅叠加成交量（不再绘制单独股价 K 线） */
+      function fitChartToCompareData() {
+        const ext =
+          typeof getCompareTimeExtent === 'function' ? getCompareTimeExtent() : null;
+        if (ext && ext.minT != null && ext.maxT != null && ext.minT < ext.maxT) {
+          try {
+            chart.timeScale().setVisibleRange({ from: ext.minT, to: ext.maxT });
+          } catch (_) {
+            chart.timeScale().fitContent();
+          }
+        } else {
+          chart.timeScale().fitContent();
+        }
+      }
+
+      let volumeSeriesByTicker = {};
+
+      function hexToRgba(hex, a) {
+        const h = hex && hex[0] === '#' ? hex : '#4da3ff';
+        const n = parseInt(h.slice(1, 7), 16);
+        const r = (n >> 16) & 255;
+        const g = (n >> 8) & 255;
+        const b = n & 255;
+        return `rgba(${r},${g},${b},${a})`;
+      }
+
+      function volumesTintedForTicker(t, i) {
+        const pack = candleMap[t] || { volumes: [], candles: [] };
+        const candles = pack.candles || [];
+        const vols = pack.volumes || [];
+        const base = colors[i % colors.length];
+        const up = hexToRgba(base, 0.62);
+        const down = hexToRgba(base, 0.38);
+        return vols.map((row, j) => {
+          const cnd = candles[j];
+          const isUp = cnd ? Number(cnd.close) >= Number(cnd.open) : true;
+          return Object.assign({}, row, { color: isUp ? up : down });
+        });
+      }
+
+      function volumesAsLinePoints(t) {
+        const pack = candleMap[t] || { volumes: [] };
+        return (pack.volumes || []).map((row) => ({
+          time: row.time,
+          value: row.value != null ? Number(row.value) : 0,
+        }));
+      }
+
+      function applyVolumeLayout() {
+        const anyVol = Object.values(volumeSeriesByTicker)[0];
+        if (anyVol && typeof anyVol.priceScale === 'function') {
+          anyVol.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+        }
+        chart.priceScale('').applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+        chart.priceScale('left').applyOptions({ scaleMargins: { top: 0, bottom: 0.25 } });
+      }
+
+      function rebuildVolumeSeries() {
+        Object.values(volumeSeriesByTicker).forEach((s) => removeSeriesCompat(chart, s));
+        volumeSeriesByTicker = {};
+        const vKind =
+          volumeChartKindEl && volumeChartKindEl.value === 'line' ? 'line' : 'histogram';
+        tickerList.forEach((t, i) => {
+          const c = colors[i % colors.length];
+          const vis = legendVisibility[t] !== false;
+          let s = null;
+          if (vKind === 'line') {
+            s = addSeriesCompat(chart, 'line', {
+              priceScaleId: '',
+              color: c,
+              lineWidth: 1.5,
+              title: `${t} 成交量`,
+              priceFormat: { type: 'volume' },
+              visible: vis,
+            });
+            if (s) s.setData(volumesAsLinePoints(t));
+          } else {
+            s = addSeriesCompat(chart, 'histogram', {
+              priceFormat: { type: 'volume' },
+              priceScaleId: '',
+              title: `${t} 成交量`,
+              color: hexToRgba(c, 0.5),
+              visible: vis,
+            });
+            if (s) s.setData(volumesTintedForTicker(t, i));
+          }
+          if (s) volumeSeriesByTicker[t] = s;
+        });
+        applyVolumeLayout();
+      }
+
+      let compareSeriesByTicker = {};
+      let compareEffectiveKind = 'line';
+
+      function currentCompareBucket() {
+        const mode = cmpModeEl.value;
+        return compareBuckets[mode] || compareBuckets.close || {};
+      }
+
+      function rebuildCompareSeries(kind) {
+        compareEffectiveKind = compareSeriesKindSupported(kind) ? kind : 'line';
+        Object.values(compareSeriesByTicker).forEach((s) => removeSeriesCompat(chart, s));
+        compareSeriesByTicker = {};
+        const bucket = currentCompareBucket();
+        const useKind = compareEffectiveKind;
+        tickerList.forEach((t, i) => {
+          const c = colors[i % colors.length];
+          const opts = Object.assign({}, compareOptsForKind(useKind, c, t, legendVisibility[t]), { priceScaleId: 'left' });
+          const s = addSeriesCompat(chart, useKind, opts);
+          if (s) {
+            compareSeriesByTicker[t] = s;
+            const seriesPts =
+              useKind === 'candlestick'
+                ? (compareCandlesByTicker[t] || [])
+                : (bucket[t] || []);
+            setCompareSeriesData(s, useKind, seriesPts);
+          }
+        });
+        rebuildVolumeSeries();
+      }
+
+      function applyCompareMode() {
+        const bucket = currentCompareBucket();
+        tickerList.forEach((t) => {
+          const s = compareSeriesByTicker[t];
+          if (!s) return;
+          const pts =
+            compareEffectiveKind === 'candlestick'
+              ? (compareCandlesByTicker[t] || [])
+              : (bucket[t] || []);
+          setCompareSeriesData(s, compareEffectiveKind, pts);
+        });
+        setRangeUI('all');
+        fitChartToCompareData();
+      }
+
+      rebuildCompareSeries(cmpChartKindEl.value);
+      cmpModeEl.addEventListener('change', applyCompareMode);
+      let cmpKindSwitchTimer = null;
+      cmpChartKindEl.addEventListener('change', () => {
+        const v = cmpChartKindEl.value;
+        if (cmpKindSwitchTimer) clearTimeout(cmpKindSwitchTimer);
+        cmpKindSwitchTimer = setTimeout(() => {
+          cmpKindSwitchTimer = null;
+          rebuildCompareSeries(v);
+          if (compareEffectiveKind !== v && typeof console !== 'undefined' && console.warn) {
+            console.warn('对比类型已回退为线：当前环境不支持', v);
+          }
+          setRangeUI('all');
+          requestAnimationFrame(() => fitChartToCompareData());
+        }, 50);
+      });
+
+      let volumeKindSwitchTimer = null;
+      volumeChartKindEl.addEventListener('change', () => {
+        if (volumeKindSwitchTimer) clearTimeout(volumeKindSwitchTimer);
+        volumeKindSwitchTimer = setTimeout(() => {
+          volumeKindSwitchTimer = null;
+          rebuildVolumeSeries();
+          setRangeUI('all');
+          requestAnimationFrame(() => fitChartToCompareData());
+        }, 30);
+      });
+
+      leg.querySelectorAll('input[data-ticker]').forEach((inp) => {
+        inp.addEventListener('change', () => {
+          const t = inp.dataset.ticker;
+          legendVisibility[t] = inp.checked;
+          const s = compareSeriesByTicker[t];
+          if (s && typeof s.applyOptions === 'function') s.applyOptions({ visible: inp.checked });
+          const vs = volumeSeriesByTicker[t];
+          if (vs && typeof vs.applyOptions === 'function') vs.applyOptions({ visible: inp.checked });
+        });
+      });
+
+      function getCompareTimeExtent() {
+        let minT = null;
+        let maxT = null;
+        tickerList.forEach((t) => {
+          const pts =
+            compareEffectiveKind === 'candlestick'
+              ? (compareCandlesByTicker[t] || [])
+              : (currentCompareBucket()[t] || []);
+          if (!pts || !pts.length) return;
+          const f = pts[0].time;
+          const l = pts[pts.length - 1].time;
+          if (minT === null || f < minT) minT = f;
+          if (maxT === null || l > maxT) maxT = l;
+        });
+        return { minT, maxT };
+      }
+
+      function setRangeUI(key) {
+        document.querySelectorAll('.range-bar button[data-range]').forEach((b) => {
+          b.classList.toggle('active', b.getAttribute('data-range') === key);
+        });
+      }
+
+      function applyTimeRange(key) {
+        setRangeUI(key);
+        const { minT, maxT } = getCompareTimeExtent();
+        if (maxT == null) return;
+        if (key === 'all') {
+          fitChartToCompareData();
+          return;
+        }
+        const span = rangeSeconds[key];
+        if (span == null || span <= 0) return;
+        let from = maxT - span;
+        if (minT != null && from < minT) from = minT;
+        try {
+          chart.timeScale().setVisibleRange({ from, to: maxT });
+        } catch (_) {
+          chart.timeScale().fitContent();
+        }
+      }
+
+      document.querySelectorAll('.range-bar button[data-range]').forEach((btn) => {
+        btn.addEventListener('click', () => applyTimeRange(btn.getAttribute('data-range')));
+      });
+
+      fitChartToCompareData();
+
+      window.addEventListener('resize', () => {
+        chart.resize(chartEl.clientWidth, chartEl.clientHeight);
+      });
+    }
+    main().catch((e) => {
+      const hd = document.getElementById('header');
+      hd.innerHTML = `<span class="chip">页面加载失败: ${String(e.message || e)}</span>`;
+      console.error(e);
+    });
+  </script>
+</body>
+</html>

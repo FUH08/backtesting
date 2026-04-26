@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DolphinDB TradingView 风格看盘</title>
+  <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+  <style>
+    body { font-family: Inter, Arial, sans-serif; margin: 0; color: #d1d4dc; background: #131722; }
+    .wrap { padding: 12px; box-sizing: border-box; }
+    .wrap.adaptive { min-height: 100vh; display: flex; flex-direction: column; padding: 8px; }
+    .card { background: #1e222d; border: 1px solid #2a2e39; border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .tb-row2 { border-top: 1px solid #2a2e39; margin-top: 8px; padding-top: 8px; }
+    .tb-sep { color: #3b3f4a; user-select: none; margin: 0 2px; }
+    input, select, button { padding: 6px 8px; border: 1px solid #3b3f4a; border-radius: 6px; background: #131722; color: #d1d4dc; }
+    button { cursor: pointer; }
+    .chip { border: 1px solid #3b3f4a; background: #131722; color: #d1d4dc; border-radius: 6px; padding: 5px 8px; cursor: pointer; }
+    .chip.active { border-color: #2962ff; color: #2962ff; }
+    #chart { width: 100%; height: 520px; box-sizing: border-box; }
+    .wrap.adaptive .layout-fill { flex: 0 0 auto; }
+    .wrap.adaptive #chart { flex: 1 1 auto; height: min(72vh, calc(100vh - 200px)) !important; min-height: 300px; max-height: none; margin-bottom: 8px; }
+    .wrap.adaptive .table-card { max-height: 32vh; overflow: auto; }
+    :fullscreen#chart, #chart:fullscreen { height: 100% !important; min-height: 0 !important; border-radius: 0; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border-bottom: 1px solid #2a2e39; padding: 6px 8px; font-size: 12px; text-align: right; }
+    th:first-child, td:first-child { text-align: left; }
+    .meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
+    .muted { color: #868993; font-size: 12px; }
+    .up { color: #26a69a; }
+    .down { color: #ef5350; }
+    .combo { position: relative; display: inline-block; vertical-align: top; }
+    .combo input { min-width: 120px; }
+    .combo-list {
+      position: absolute; z-index: 50; left: 0; min-width: 100%; max-width: 360px; max-height: 240px; overflow: auto;
+      margin: 2px 0 0; padding: 0; list-style: none; background: #1e222d; border: 1px solid #3b3f4a; border-radius: 6px;
+      box-shadow: 0 4px 12px rgba(0,0,0,.35);
+    }
+    .combo-list li { padding: 6px 10px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+    .combo-list li:hover, .combo-list li.active { background: #2a2e39; }
+    .combo-hint { font-size: 11px; color: #868993; margin-top: 2px; }
+  </style>
+</head>
+<body>
+  <div class="wrap" id="mainWrap">
+    <div class="card layout-fill">
+      <div class="row">
+        <label>库
+          <input type="text" id="dbPath" value="__DDB_PATH__" style="width:170px" title="DolphinDB 库路径" />
+        </label>
+        <div class="combo" id="tableCombo">
+          <label>表 <input type="text" id="table" value="bars_1d" placeholder="筛选/选择" autocomplete="off" style="width:130px" /></label>
+          <ul id="tableList" class="combo-list" style="display:none"></ul>
+        </div>
+        <span class="tb-sep">|</span>
+        <div class="combo" id="tickerCombo">
+          <label>代码
+            <input type="text" id="ticker" placeholder="前缀搜索" autocomplete="off" style="width:130px" />
+          </label>
+          <ul id="tickerList" class="combo-list" style="display:none"></ul>
+        </div>
+        <span class="tb-sep">|</span>
+        <div>
+          <button class="chip active" data-days="90" onclick="setDays(this)">3M</button>
+          <button class="chip" data-days="180" onclick="setDays(this)">6M</button>
+          <button class="chip" data-days="365" onclick="setDays(this)">1Y</button>
+          <button class="chip" data-days="1095" onclick="setDays(this)">3Y</button>
+          <button class="chip" data-days="3650" onclick="setDays(this)">10Y</button>
+        </div>
+        <span class="tb-sep">|</span>
+        <label>天数 <input id="days" type="number" min="10" max="5000" value="90" style="width:64px" /></label>
+        <label>K线 <input id="bars" type="number" min="50" max="4000" value="600" style="width:64px" /></label>
+        <label>明细 <input id="limit" type="number" min="10" max="200" value="30" style="width:52px" /></label>
+        <button onclick="refreshNow()">刷新</button>
+        <label>轮询
+          <select id="interval" onchange="resetTimer()">
+            <option value="0">关</option>
+            <option value="3">3s</option>
+            <option value="5" selected>5s</option>
+            <option value="10">10s</option>
+          </select>
+        </label>
+        <span id="ohlc" class="muted"></span>
+      </div>
+      <div class="row tb-row2">
+        <button type="button" class="chip" id="btnTickerIndex" onclick="rebuildTickerIndex()">预生成代码索引</button>
+        <span id="tickerIndexInfo" class="muted" style="flex:1; min-width:120px;"></span>
+        <span class="tb-sep">|</span>
+        <span class="muted" style="font-size:11px;">布局</span>
+        <button type="button" class="chip" id="btnAdaptive" onclick="toggleAdaptiveLayout()">自适应显示</button>
+        <button type="button" class="chip" id="btnChartFs" onclick="toggleChartFullscreen()">K线全屏</button>
+        <button type="button" class="chip" id="btnAxisFit" onclick="fitChartAxes()">XY轴自适应</button>
+      </div>
+      <div id="status" class="muted" style="margin-top:8px;"></div>
+    </div>
+
+    <div class="card layout-fill"><div class="meta" id="meta"></div></div>
+    <div id="chart" class="card"></div>
+
+    <div class="card table-card">
+      <table>
+        <thead>
+          <tr>
+            <th>ticker</th><th>date</th><th>window_start</th><th>open</th><th>high</th><th>low</th><th>close</th><th>volume</th><th>transactions</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+<script>
+let timer = null;
+let chart = null;
+let candleSeries = null;
+let ma9Series = null;
+let ma21Series = null;
+let volumeSeries = null;
+let refreshInflight = false;
+let refreshQueued = false;
+
+function addSeriesCompat(type, options){
+  if(!chart){ return null; }
+  if(typeof chart.addSeries === 'function' && typeof LightweightCharts !== 'undefined'){
+    if(type === 'candlestick' && LightweightCharts.CandlestickSeries){
+      return chart.addSeries(LightweightCharts.CandlestickSeries, options);
+    }
+    if(type === 'line' && LightweightCharts.LineSeries){
+      return chart.addSeries(LightweightCharts.LineSeries, options);
+    }
+    if(type === 'histogram' && LightweightCharts.HistogramSeries){
+      return chart.addSeries(LightweightCharts.HistogramSeries, options);
+    }
+  }
+  if(type === 'candlestick' && typeof chart.addCandlestickSeries === 'function'){
+    return chart.addCandlestickSeries(options);
+  }
+  if(type === 'line' && typeof chart.addLineSeries === 'function'){
+    return chart.addLineSeries(options);
+  }
+  if(type === 'histogram' && typeof chart.addHistogramSeries === 'function'){
+    return chart.addHistogramSeries(options);
+  }
+  return null;
+}
+
+function resizeChart(){
+  if(!chart) return;
+  const el = q('chart');
+  const w = el.clientWidth || 800;
+  const h = Math.max(100, el.clientHeight || 520);
+  try {
+    if (typeof chart.resize === 'function') chart.resize(w, h);
+    else chart.applyOptions({ width: w, height: h });
+  } catch (e) {}
+}
+
+function initChart(){
+  if(chart){ return; }
+  const el = q('chart');
+  const w = el.clientWidth || 800;
+  const h = el.clientHeight || 520;
+  chart = LightweightCharts.createChart(el, {
+    width: w,
+    height: h,
+    layout: { background: { color: '#1e222d' }, textColor: '#d1d4dc' },
+    grid: { vertLines: { color: '#2a2e39' }, horzLines: { color: '#2a2e39' } },
+    crosshair: { mode: 1 },
+    rightPriceScale: { borderColor: '#2a2e39' },
+    timeScale: { borderColor: '#2a2e39', timeVisible: true, secondsVisible: false },
+  });
+  candleSeries = addSeriesCompat('candlestick', {
+    upColor: '#26a69a', downColor: '#ef5350', borderVisible: false,
+    wickUpColor: '#26a69a', wickDownColor: '#ef5350'
+  });
+  ma9Series = addSeriesCompat('line', { color: '#f5a623', lineWidth: 1 });
+  ma21Series = addSeriesCompat('line', { color: '#4da3ff', lineWidth: 1 });
+  volumeSeries = addSeriesCompat('histogram', {
+    priceFormat: { type: 'volume' }, priceScaleId: '',
+  });
+  if(volumeSeries && typeof volumeSeries.priceScale === 'function'){
+    volumeSeries.priceScale().applyOptions({
+      scaleMargins: { top: 0.8, bottom: 0 },
+    });
+  }
+  chart.priceScale('').applyOptions({ scaleMargins: { top: 0.8, bottom: 0 }});
+  chart.priceScale('right').applyOptions({ scaleMargins: { top: 0, bottom: 0.25 }});
+}
+
+const DDB_LS_ADAPTIVE = 'ddb_adaptive_layout';
+
+function toggleAdaptiveLayout(){
+  const wrap = q('mainWrap');
+  wrap.classList.toggle('adaptive');
+  const on = wrap.classList.contains('adaptive');
+  try { localStorage.setItem(DDB_LS_ADAPTIVE, on ? '1' : '0'); } catch (e) {}
+  const btn = q('btnAdaptive');
+  btn.classList.toggle('active', on);
+  btn.textContent = on ? '普通布局' : '自适应显示';
+  setTimeout(resizeChart, 0);
+  setTimeout(resizeChart, 150);
+}
+
+function restoreAdaptiveLayout(){
+  try {
+    if (localStorage.getItem(DDB_LS_ADAPTIVE) === '1') {
+      q('mainWrap').classList.add('adaptive');
+      const btn = q('btnAdaptive');
+      btn.classList.add('active');
+      btn.textContent = '普通布局';
+    }
+  } catch (e) {}
+}
+
+function fitChartAxes(){
+  if (!chart) return;
+  try {
+    const ts = chart.timeScale();
+    if (ts && typeof ts.fitContent === 'function') ts.fitContent();
+  } catch (e) {}
+  const scaleIds = ['right', ''];
+  for (let i = 0; i < scaleIds.length; i++) {
+    try {
+      const ps = chart.priceScale(scaleIds[i]);
+      if (ps) {
+        if (typeof ps.applyOptions === 'function') ps.applyOptions({ autoScale: true });
+        if (typeof ps.setAutoScale === 'function') ps.setAutoScale(true);
+      }
+    } catch (e) {}
+  }
+  setTimeout(resizeChart, 0);
+}
+
+function toggleChartFullscreen(){
+  const el = q('chart');
+  if (!document.fullscreenElement) {
+    const req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+    if (req) req.call(el);
+  } else {
+    const ex = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
+    if (ex) ex.call(document);
+  }
+  setTimeout(resizeChart, 50);
+  setTimeout(resizeChart, 300);
+}
+
+function q(id){ return document.getElementById(id); }
+function fmt(n){ return Number(n).toLocaleString(); }
+
+let allTableNames = [];
+let tickerDebounce = null;
+
+function hideCombo(ulId){ q(ulId).style.display = 'none'; }
+function showCombo(ulId){ q(ulId).style.display = 'block'; }
+
+function renderList(ul, items, onPick){
+  ul.innerHTML = items.slice(0, 500).map((x, i) => `<li data-i="${i}" class="${i === 0 ? 'active' : ''}">${x}</li>`).join('');
+  Array.from(ul.querySelectorAll('li')).forEach(li => {
+    li.addEventListener('mousedown', (e) => { e.preventDefault(); onPick(li.textContent); });
+  });
+}
+
+async function loadTableNames(){
+  const db = encodeURIComponent(q('dbPath').value.trim() || '__DDB_PATH__');
+  const r = await fetch(`/api/tables?db=${db}`);
+  const d = await r.json();
+  if(d.ok){
+    allTableNames = d.tables || [];
+  } else {
+    allTableNames = [];
+    if(d.error) q('status').textContent = d.error;
+  }
+}
+
+function filterTableList(){
+  const s = (q('table').value || '').toLowerCase();
+  const ul = q('tableList');
+  if(!allTableNames.length){
+    ul.innerHTML = '<li class="combo-hint" style="cursor:default">加载中或无表名…</li>';
+    showCombo('tableList');
+    return;
+  }
+  const items = s ? allTableNames.filter(x => x.toLowerCase().includes(s)) : allTableNames;
+  if(!items.length){
+    ul.innerHTML = '<li class="combo-hint" style="cursor:default">无匹配</li>';
+  } else {
+    renderList(ul, items, (val) => { q('table').value = val; hideCombo('tableList'); refreshNow(); });
+  }
+  showCombo('tableList');
+}
+
+async function fetchTickerIndexStatus(){
+  const db = encodeURIComponent(q('dbPath').value.trim() || '__DDB_PATH__');
+  const tb = encodeURIComponent(q('table').value.trim() || 'bars_1d');
+  try {
+    const r = await fetch(`/api/ticker_index/status?db=${db}&table=${tb}`);
+    const d = await r.json();
+    const el = q('tickerIndexInfo');
+    if(!d.ok){
+      el.textContent = d.error || '无法读取代码索引状态';
+      return;
+    }
+    if(d.building){
+      el.textContent = '代码索引: 全表去重中(可能数分钟)…';
+      setTimeout(fetchTickerIndexStatus, 2000);
+    } else {
+      if(d.error) el.textContent = '代码索引: 失败 — ' + d.error;
+      else if(d.exists && d.count) el.textContent = '代码索引: ' + fmt(d.count) + ' 只 · 更新 ' + (d.built_at || '');
+      else el.textContent = '代码索引: 未生成(点右侧按钮,一次性生成后秒搜)';
+    }
+  } catch (e) {
+    q('tickerIndexInfo').textContent = e.message;
+  }
+}
+
+async function rebuildTickerIndex(){
+  const db = encodeURIComponent(q('dbPath').value.trim() || '__DDB_PATH__');
+  const tb = encodeURIComponent(q('table').value.trim() || 'bars_1d');
+  q('tickerIndexInfo').textContent = '已提交后台任务…';
+  const r = await fetch(`/api/ticker_index/rebuild?db=${db}&table=${tb}&async=1`);
+  const d = await r.json();
+  if(d.ok){
+    if(d.started) q('status').textContent = d.message || '已提交代码索引';
+    else q('status').textContent = d.message || '';
+    fetchTickerIndexStatus();
+  } else
+    q('tickerIndexInfo').textContent = d.error || '提交失败';
+}
+
+async function searchTickers(pfx){
+  const db = encodeURIComponent(q('dbPath').value.trim() || '__DDB_PATH__');
+  const tb = encodeURIComponent(q('table').value.trim() || 'bars_1d');
+  const t = pfx.toUpperCase().trim();
+  const ul = q('tickerList');
+  if(t.length < 1){
+    ul.innerHTML = '<li class="combo-hint" style="cursor:default">至少输入1个字符搜索</li>';
+    showCombo('tickerList');
+    return;
+  }
+  const r = await fetch(`/api/tickers?db=${db}&table=${tb}&q=${encodeURIComponent(t)}&limit=200`);
+  const d = await r.json();
+  if(!d.ok){
+    ul.innerHTML = '<li class="combo-hint" style="cursor:default">'+d.error+'</li>';
+  } else if(d.index_ready === false){
+    const m = d.index_error || d.message || '请先在「预生成/刷新代码索引」生成全量列表';
+    ul.innerHTML = '<li class="combo-hint" style="cursor:default">'+m+'</li>';
+  } else {
+    const items = d.tickers || [];
+    if(!items.length)
+      ul.innerHTML = '<li class="combo-hint" style="cursor:default">无匹配</li>';
+    else
+      renderList(ul, items, (val) => { q('ticker').value = val; hideCombo('tickerList'); refreshNow(); });
+  }
+  showCombo('tickerList');
+}
+
+function scheduleTickerSearch(){
+  if(tickerDebounce) clearTimeout(tickerDebounce);
+  tickerDebounce = setTimeout(() => { searchTickers(q('ticker').value); }, 220);
+}
+
+document.addEventListener('click', (e) => {
+  if(!e.target.closest('#tableCombo')) hideCombo('tableList');
+  if(!e.target.closest('#tickerCombo')) hideCombo('tickerList');
+});
+
+function setupCombos(){
+  q('dbPath').addEventListener('change', () => { loadTableNames().then(() => { filterTableList(); fetchTickerIndexStatus(); }); });
+  q('dbPath').addEventListener('blur', () => { loadTableNames().then(() => { filterTableList(); fetchTickerIndexStatus(); }); });
+  q('table').addEventListener('focus', () => { filterTableList(); });
+  q('table').addEventListener('input', () => { filterTableList(); showCombo('tableList'); });
+  q('table').addEventListener('blur', () => { fetchTickerIndexStatus(); });
+  q('ticker').addEventListener('focus', () => { scheduleTickerSearch(); showCombo('tickerList'); });
+  q('ticker').addEventListener('input', () => { scheduleTickerSearch(); showCombo('tickerList'); });
+  loadTableNames().then(() => { filterTableList(); fetchTickerIndexStatus(); });
+}
+
+if(document.readyState === 'loading')
+  document.addEventListener('DOMContentLoaded', setupCombos);
+else
+  setupCombos();
+
+function setDays(btn){
+  q('days').value = btn.dataset.days;
+  document.querySelectorAll('.chip').forEach(x => x.classList.remove('active'));
+  btn.classList.add('active');
+  refreshNow();
+}
+
+function renderMeta(meta){
+  q('meta').innerHTML = [
+    `库: <b>${meta.db_path || ""}</b>`,
+    `表: <b>${meta.table}</b>`,
+    `代码: <b>${meta.ticker}</b>`,
+    `${meta.rows_scope === 'recent' ? '区间行数' : '总行数'}: <b>${fmt(meta.rows)}</b>`,
+    `日期范围: <b>${meta.min_date} ~ ${meta.max_date}</b>`,
+    `K线数量: <b>${fmt(meta.bars)}</b>`,
+    `明细行数: <b>${fmt(meta.recent_rows)}</b>`
+  ].map(x => `<div>${x}</div>`).join('');
+}
+
+function renderRows(rows){
+  q('tbody').innerHTML = rows.map(r => `
+    <tr>
+      <td>${r.ticker}</td><td>${r.date}</td><td>${r.window_start}</td>
+      <td>${r.open}</td><td>${r.high}</td><td>${r.low}</td><td>${r.close}</td>
+      <td>${r.volume}</td><td>${r.transactions}</td>
+    </tr>`).join('');
+}
+
+async function refreshNow(){
+  if (refreshInflight) {
+    refreshQueued = true;
+    return;
+  }
+  refreshInflight = true;
+  try {
+    initChart();
+    if(!candleSeries || !ma9Series || !ma21Series || !volumeSeries){
+      throw new Error('图表初始化失败，请 Ctrl+F5 强制刷新');
+    }
+    const dbp = encodeURIComponent(q('dbPath').value.trim() || 'dfs://massive_data');
+    const table = encodeURIComponent(q('table').value.trim() || 'bars_1d');
+    const ticker = encodeURIComponent(q('ticker').value.trim());
+    const days = encodeURIComponent(q('days').value || '365');
+    const bars = encodeURIComponent(q('bars').value || '600');
+    const limit = encodeURIComponent(q('limit').value || '30');
+    q('status').textContent = '同步数据中...';
+    const ctl = new AbortController();
+    const timeoutId = setTimeout(() => ctl.abort(), 15000);
+    const r = await fetch(`/api/snapshot?db=${dbp}&table=${table}&ticker=${ticker}&days=${days}&bars=${bars}&limit=${limit}`, { signal: ctl.signal });
+    clearTimeout(timeoutId);
+    const data = await r.json();
+    if(!data.ok){ throw new Error(data.error || 'unknown error'); }
+    q('ticker').value = data.meta.ticker;
+    renderMeta(data.meta);
+    renderRows(data.recent);
+    candleSeries.setData(data.candles);
+    ma9Series.setData(data.ma9);
+    ma21Series.setData(data.ma21);
+    volumeSeries.setData(data.volumes);
+    const last = data.candles[data.candles.length - 1];
+    if(last){
+      const cls = last.close >= last.open ? 'up' : 'down';
+      q('ohlc').innerHTML = `<span class="${cls}">${data.meta.ticker} O:${last.open} H:${last.high} L:${last.low} C:${last.close}</span>`;
+    }
+    q('status').textContent = `最后刷新: ${new Date().toLocaleString()} · 查询区间: ${data.meta.query_days || q('days').value}天`;
+    setTimeout(resizeChart, 0);
+  } catch (e){
+    const msg = e && e.name === 'AbortError' ? '请求超时(15s)，请缩短天数或K线数' : (e.message || String(e));
+    q('status').textContent = `刷新失败: ${msg}`;
+  } finally {
+    refreshInflight = false;
+    if (refreshQueued) {
+      refreshQueued = false;
+      setTimeout(refreshNow, 0);
+    }
+  }
+}
+
+function resetTimer(){
+  if(timer){ clearInterval(timer); timer = null; }
+  const sec = Number(q('interval').value);
+  if(sec > 0){ timer = setInterval(refreshNow, sec * 1000); }
+}
+
+document.addEventListener('fullscreenchange', () => setTimeout(resizeChart, 80));
+window.addEventListener('resize', () => resizeChart());
+
+restoreAdaptiveLayout();
+resetTimer();
+refreshNow();
+</script>
+</body>
+</html>
