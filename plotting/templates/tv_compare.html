@@ -7,33 +7,33 @@
   <!-- TradingView Lightweight Charts™: https://www.tradingview.com/lightweight-charts/ -->
   <script src="/static/lightweight-charts.standalone.production.js"></script>
   <style>
-    body { margin: 0; font-family: Arial, sans-serif; background: #131722; color: #d1d4dc; }
+    body { margin: 0; font-family: Arial, sans-serif; background: #f5f7fb; color: #1f2937; }
     .wrap { padding: 10px 12px; }
     .header { margin-bottom: 8px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
     .controls { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin-bottom: 6px; font-size: 12px; }
-    .controls label { color: #868993; margin-right: 6px; }
+    .controls label { color: #4b5563; margin-right: 6px; }
     .controls select, .controls button {
-      background: #1e222d; color: #d1d4dc; border: 1px solid #3b3f4a; border-radius: 6px;
+      background: #ffffff; color: #111827; border: 1px solid #d1d5db; border-radius: 6px;
       padding: 4px 8px; font-size: 12px;
     }
     .range-bar { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; }
-    .range-bar .hint { color: #868993; margin-right: 4px; }
+    .range-bar .hint { color: #4b5563; margin-right: 4px; }
     .range-bar button { border-radius: 4px; padding: 3px 9px; font-size: 11px; cursor: pointer; }
-    .range-bar button:hover { border-color: #5d606b; }
+    .range-bar button:hover { border-color: #9ca3af; }
     .range-bar button.active { border-color: #4da3ff; color: #4da3ff; }
-    .chip { border: 1px solid #3b3f4a; border-radius: 999px; padding: 4px 10px; font-size: 12px; }
+    .chip { border: 1px solid #d1d5db; border-radius: 999px; padding: 4px 10px; font-size: 12px; background: #ffffff; }
     .legend-row {
       display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-bottom: 8px; padding: 8px 10px;
-      background: #1e222d; border: 1px solid #2a2e39; border-radius: 8px; font-size: 12px;
+      background: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px; font-size: 12px;
     }
-    .legend-row .title { color: #868993; margin-right: 4px; }
+    .legend-row .title { color: #4b5563; margin-right: 4px; }
     .leg-item { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
     .leg-item input { accent-color: #4da3ff; }
     .leg-item .sw { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
-    .panel { border: 1px solid #2a2e39; border-radius: 8px; background: #1e222d; }
+    .panel { border: 1px solid #e5e7eb; border-radius: 8px; background: #ffffff; }
     #mainChart { width: 100%; height: min(88vh, 920px); min-height: 420px; }
-    .attrib { margin: 10px 0 0; font-size: 11px; color: #5d606b; text-align: center; }
-    .attrib a { color: #868993; }
+    .attrib { margin: 10px 0 0; font-size: 11px; color: #6b7280; text-align: center; }
+    .attrib a { color: #4b5563; }
   </style>
 </head>
 <body>
@@ -80,35 +80,55 @@
       }));
     }
 
-    /** 蜡烛图涨跌色：涨用系列色，跌用同色系压暗 */
-    function candlePairColors(hex) {
+    /** 同色系「跌」描边用色（略压暗，与涨区分） */
+    function darkerOutlineHex(hex, factor) {
       const c = hex && hex[0] === '#' ? hex : '#4da3ff';
       const n = parseInt(c.slice(1, 7), 16);
       const r = (n >> 16) & 255;
       const g = (n >> 8) & 255;
       const b = n & 255;
-      const f = 0.55;
-      const down = '#' + [r, g, b].map((x) => Math.round(x * f).toString(16).padStart(2, '0')).join('');
+      const f = factor;
+      return '#' + [r, g, b].map((x) => Math.round(x * f).toString(16).padStart(2, '0')).join('');
+    }
+
+    function hexToRgba(hex, a) {
+      const h = hex && hex[0] === '#' ? hex : '#4da3ff';
+      const n = parseInt(h.slice(1, 7), 16);
+      const r = (n >> 16) & 255;
+      const g = (n >> 8) & 255;
+      const b = n & 255;
+      return `rgba(${r},${g},${b},${a})`;
+    }
+
+    /**
+     * 蜡烛图：涨实心（填色+同色边框），跌空心（实体透明，仅边框+影线）。
+     */
+    function candlePairColors(hex) {
+      const c = hex && hex[0] === '#' ? hex : '#4da3ff';
+      const down = darkerOutlineHex(c, 0.55);
       return {
         upColor: c,
-        downColor: down,
+        downColor: 'rgba(0,0,0,0)',
+        borderVisible: true,
+        borderUpColor: c,
+        borderDownColor: down,
         wickUpColor: c,
         wickDownColor: down,
-        borderVisible: false,
       };
     }
 
-    function compareOptsForKind(kind, color, title, visible) {
+    function compareOptsForKind(kind, color, _title, visible) {
       const vis = visible !== false;
-      if (kind === 'line') return { color, lineWidth: 2, title, visible: vis };
+      if (kind === 'line') return { color, lineWidth: 2, visible: vis, lastValueVisible: false, priceLineVisible: false };
       if (kind === 'area') {
         return {
           lineColor: color,
           topColor: color + '55',
           bottomColor: color + '12',
           lineWidth: 2,
-          title,
           visible: vis,
+          lastValueVisible: false,
+          priceLineVisible: false,
         };
       }
       if (kind === 'baseline') {
@@ -121,17 +141,29 @@
           bottomFillColor1: color + '18',
           bottomFillColor2: color + '66',
           lineWidth: 2,
-          title,
           visible: vis,
+          lastValueVisible: false,
+          priceLineVisible: false,
         };
       }
       if (kind === 'bar') {
-        return { upColor: color, downColor: color, thinBars: true, title, visible: vis };
+        const dline = darkerOutlineHex(color, 0.55);
+        return {
+          upColor: color,
+          downColor: 'rgba(0,0,0,0)',
+          borderUpColor: color,
+          borderDownColor: dline,
+          thinBars: false,
+          openVisible: true,
+          visible: vis,
+          lastValueVisible: false,
+          priceLineVisible: false,
+        };
       }
       if (kind === 'candlestick') {
-        return { ...candlePairColors(color), title, visible: vis };
+        return { ...candlePairColors(color), visible: vis, lastValueVisible: false, priceLineVisible: false };
       }
-      return { color, lineWidth: 2, title, visible: vis };
+      return { color, lineWidth: 2, visible: vis, lastValueVisible: false, priceLineVisible: false };
     }
 
     function compareSeriesKindSupported(kind) {
@@ -207,16 +239,16 @@
           </select></div>
         <div><label for="cmpChartKind">对比类型</label>
           <select id="cmpChartKind">
-            <option value="line" selected>线</option>
-            <option value="candlestick">蜡烛图</option>
+            <option value="line">线</option>
+            <option value="candlestick" selected>蜡烛图</option>
             <option value="area">面积</option>
             <option value="baseline">基准</option>
             <option value="bar">柱状</option>
           </select></div>
         <div><label for="volumeChartKind">成交量</label>
           <select id="volumeChartKind" title="各标的叠加显示，颜色与上方图例一致">
-            <option value="histogram" selected>柱状</option>
-            <option value="line">线</option>
+            <option value="histogram">柱状</option>
+            <option value="line" selected>线</option>
           </select></div>
         <div class="range-bar">
           <span class="hint">范围</span>
@@ -233,22 +265,69 @@
         `<label class="leg-item"><input type="checkbox" data-ticker="${t}" checked><span class="sw" style="background:${colors[i % colors.length]}"></span>${t}</label>`
       ).join('');
 
+      function valueAtOrBefore(points, ts) {
+        if (!Array.isArray(points) || points.length === 0) return null;
+        if (ts == null) {
+          const last = points[points.length - 1];
+          return last && last.value != null ? Number(last.value) : null;
+        }
+        let lo = 0;
+        let hi = points.length - 1;
+        let ans = -1;
+        while (lo <= hi) {
+          const mid = (lo + hi) >> 1;
+          const mt = Number(points[mid].time);
+          if (mt <= ts) {
+            ans = mid;
+            lo = mid + 1;
+          } else {
+            hi = mid - 1;
+          }
+        }
+        if (ans < 0) return null;
+        const row = points[ans];
+        return row && row.value != null ? Number(row.value) : null;
+      }
+
+      function candleAtOrBefore(points, ts) {
+        if (!Array.isArray(points) || points.length === 0) return null;
+        if (ts == null) return points[points.length - 1] || null;
+        let lo = 0;
+        let hi = points.length - 1;
+        let ans = -1;
+        while (lo <= hi) {
+          const mid = (lo + hi) >> 1;
+          const mt = Number(points[mid].time);
+          if (mt <= ts) {
+            ans = mid;
+            lo = mid + 1;
+          } else {
+            hi = mid - 1;
+          }
+        }
+        return ans >= 0 ? points[ans] : null;
+      }
+
+
       const common = {
         layout: {
-          background: { color: '#1e222d' },
-          textColor: '#d1d4dc',
+          background: { color: '#ffffff' },
+          textColor: '#111827',
           attributionLogo: true,
         },
-        grid: { vertLines: { color: '#2a2e39' }, horzLines: { color: '#2a2e39' } },
+        grid: { vertLines: { color: '#e5e7eb' }, horzLines: { color: '#e5e7eb' } },
+        crosshair: {
+          horzLine: { labelVisible: false },
+        },
         /* 分钟线根数多时，默认 minBarSpacing=0.5 会限制「最远只能缩到」约半屏像素/0.5 根，看起来像只能看到一两天 */
         timeScale: Object.assign(
-          { borderColor: '#2a2e39', timeVisible: true },
+          { borderColor: '#d1d5db', timeVisible: true, barSpacing: 8 },
           intraday
             ? { minBarSpacing: 0.001, enableConflation: true }
             : {},
         ),
-        rightPriceScale: { borderColor: '#2a2e39', visible: false },
-        leftPriceScale: { borderColor: '#2a2e39', visible: true },
+        rightPriceScale: { borderColor: '#d1d5db', visible: false },
+        leftPriceScale: { borderColor: '#d1d5db', visible: true },
         handleScale: {
           mouseWheel: true,
           pinch: true,
@@ -278,14 +357,43 @@
       }
 
       let volumeSeriesByTicker = {};
+      let compareAxisLabelsByTicker = {};
+      let volumeAxisLabelsByTicker = {};
 
-      function hexToRgba(hex, a) {
-        const h = hex && hex[0] === '#' ? hex : '#4da3ff';
-        const n = parseInt(h.slice(1, 7), 16);
-        const r = (n >> 16) & 255;
-        const g = (n >> 8) & 255;
-        const b = n & 255;
-        return `rgba(${r},${g},${b},${a})`;
+      function removeAxisLabels(map) {
+        Object.values(map).forEach((line) => {
+          try {
+            if (line && typeof line.applyOptions === 'function') {
+              line.applyOptions({ axisLabelVisible: false, lineVisible: false });
+            }
+          } catch (_) {}
+        });
+      }
+
+      function makeAxisLabel(series, color, title) {
+        if (!series || typeof series.createPriceLine !== 'function') return null;
+        try {
+          return series.createPriceLine({
+            price: 0,
+            color,
+            lineVisible: false,
+            axisLabelVisible: true,
+            title,
+          });
+        } catch (_) {
+          return null;
+        }
+      }
+
+      function forceHideSeriesStaticLabel(series) {
+        if (!series || typeof series.applyOptions !== 'function') return;
+        try {
+          series.applyOptions({
+            title: '',
+            lastValueVisible: false,
+            priceLineVisible: false,
+          });
+        } catch (_) {}
       }
 
       function volumesTintedForTicker(t, i) {
@@ -293,8 +401,9 @@
         const candles = pack.candles || [];
         const vols = pack.volumes || [];
         const base = colors[i % colors.length];
-        const up = hexToRgba(base, 0.62);
-        const down = hexToRgba(base, 0.38);
+        const dline = darkerOutlineHex(base, 0.55);
+        const up = hexToRgba(base, 0.92);
+        const down = hexToRgba(dline, 0.14);
         return vols.map((row, j) => {
           const cnd = candles[j];
           const isUp = cnd ? Number(cnd.close) >= Number(cnd.open) : true;
@@ -311,12 +420,15 @@
       }
 
       function applyVolumeLayout() {
+        /* 成交量占图高比例：'' 价轴 top 越小，底部留给成交量的区域越大；left 的 bottom 与之对齐避免与对比序列重叠 */
+        const volTop = 0.55;
+        const compareBottom = 1 - volTop;
         const anyVol = Object.values(volumeSeriesByTicker)[0];
         if (anyVol && typeof anyVol.priceScale === 'function') {
-          anyVol.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+          anyVol.priceScale().applyOptions({ scaleMargins: { top: volTop, bottom: 0 } });
         }
-        chart.priceScale('').applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
-        chart.priceScale('left').applyOptions({ scaleMargins: { top: 0, bottom: 0.25 } });
+        chart.priceScale('').applyOptions({ scaleMargins: { top: volTop, bottom: 0 } });
+        chart.priceScale('left').applyOptions({ scaleMargins: { top: 0, bottom: compareBottom } });
       }
 
       function rebuildVolumeSeries() {
@@ -333,22 +445,29 @@
               priceScaleId: '',
               color: c,
               lineWidth: 1.5,
-              title: `${t} 成交量`,
               priceFormat: { type: 'volume' },
               visible: vis,
+              lastValueVisible: false,
+              priceLineVisible: false,
             });
             if (s) s.setData(volumesAsLinePoints(t));
           } else {
             s = addSeriesCompat(chart, 'histogram', {
               priceFormat: { type: 'volume' },
               priceScaleId: '',
-              title: `${t} 成交量`,
               color: hexToRgba(c, 0.5),
               visible: vis,
+              lastValueVisible: false,
+              priceLineVisible: false,
             });
             if (s) s.setData(volumesTintedForTicker(t, i));
           }
-          if (s) volumeSeriesByTicker[t] = s;
+          if (s) {
+            forceHideSeriesStaticLabel(s);
+            volumeSeriesByTicker[t] = s;
+            const label = makeAxisLabel(s, c, `${t} 成交量`);
+            if (label) volumeAxisLabelsByTicker[t] = label;
+          }
         });
         applyVolumeLayout();
       }
@@ -364,7 +483,11 @@
       function rebuildCompareSeries(kind) {
         compareEffectiveKind = compareSeriesKindSupported(kind) ? kind : 'line';
         Object.values(compareSeriesByTicker).forEach((s) => removeSeriesCompat(chart, s));
+        removeAxisLabels(compareAxisLabelsByTicker);
+        removeAxisLabels(volumeAxisLabelsByTicker);
         compareSeriesByTicker = {};
+        compareAxisLabelsByTicker = {};
+        volumeAxisLabelsByTicker = {};
         const bucket = currentCompareBucket();
         const useKind = compareEffectiveKind;
         tickerList.forEach((t, i) => {
@@ -372,15 +495,19 @@
           const opts = Object.assign({}, compareOptsForKind(useKind, c, t, legendVisibility[t]), { priceScaleId: 'left' });
           const s = addSeriesCompat(chart, useKind, opts);
           if (s) {
+            forceHideSeriesStaticLabel(s);
             compareSeriesByTicker[t] = s;
             const seriesPts =
               useKind === 'candlestick'
                 ? (compareCandlesByTicker[t] || [])
                 : (bucket[t] || []);
             setCompareSeriesData(s, useKind, seriesPts);
+            const label = makeAxisLabel(s, c, t);
+            if (label) compareAxisLabelsByTicker[t] = label;
           }
         });
         rebuildVolumeSeries();
+        updateAxisLabelsAt(null);
       }
 
       function applyCompareMode() {
@@ -396,6 +523,7 @@
         });
         setRangeUI('all');
         fitChartToCompareData();
+        updateAxisLabelsAt(null);
       }
 
       rebuildCompareSeries(cmpChartKindEl.value);
@@ -426,6 +554,37 @@
         }, 30);
       });
 
+      function updateAxisLabelsAt(ts) {
+        const bucket = currentCompareBucket();
+        tickerList.forEach((t) => {
+          const cmpLine = compareAxisLabelsByTicker[t];
+          if (cmpLine && typeof cmpLine.applyOptions === 'function') {
+            let px = null;
+            if (compareEffectiveKind === 'candlestick') {
+              const c = candleAtOrBefore(compareCandlesByTicker[t] || [], ts);
+              px = c && c.close != null ? Number(c.close) : null;
+            } else {
+              px = valueAtOrBefore(bucket[t] || [], ts);
+            }
+            if (px != null && Number.isFinite(px)) {
+              cmpLine.applyOptions({ price: px, axisLabelVisible: legendVisibility[t] !== false });
+            } else {
+              cmpLine.applyOptions({ axisLabelVisible: false });
+            }
+          }
+
+          const volLine = volumeAxisLabelsByTicker[t];
+          if (volLine && typeof volLine.applyOptions === 'function') {
+            const vol = valueAtOrBefore(((candleMap[t] || {}).volumes || []), ts);
+            if (vol != null && Number.isFinite(vol)) {
+              volLine.applyOptions({ price: vol, axisLabelVisible: legendVisibility[t] !== false });
+            } else {
+              volLine.applyOptions({ axisLabelVisible: false });
+            }
+          }
+        });
+      }
+
       leg.querySelectorAll('input[data-ticker]').forEach((inp) => {
         inp.addEventListener('change', () => {
           const t = inp.dataset.ticker;
@@ -434,7 +593,24 @@
           if (s && typeof s.applyOptions === 'function') s.applyOptions({ visible: inp.checked });
           const vs = volumeSeriesByTicker[t];
           if (vs && typeof vs.applyOptions === 'function') vs.applyOptions({ visible: inp.checked });
+          updateAxisLabelsAt(null);
         });
+      });
+
+      chart.subscribeCrosshairMove((param) => {
+        const point = param && param.point;
+        if (!point || point.x == null || point.y == null) {
+          updateAxisLabelsAt(null);
+          return;
+        }
+        const t = param.time;
+        const ts =
+          typeof t === 'number'
+            ? t
+            : t && typeof t.year === 'number' && typeof t.month === 'number' && typeof t.day === 'number'
+              ? Math.floor(Date.UTC(t.year, t.month - 1, t.day) / 1000)
+              : null;
+        updateAxisLabelsAt(ts);
       });
 
       function getCompareTimeExtent() {
@@ -484,6 +660,7 @@
       });
 
       fitChartToCompareData();
+      updateAxisLabelsAt(null);
 
       window.addEventListener('resize', () => {
         chart.resize(chartEl.clientWidth, chartEl.clientHeight);

@@ -1,23 +1,22 @@
+"""命令行解析：DolphinDB 连接与查询窗口、Web 服务参数 → ``PlotConfig``。"""
+
 import argparse
 import os
 
 from config import load_ddb_config
 from plotting.models import PlotConfig
-
-
-def _is_minute_table(table: str) -> bool:
-    t = (table or "").lower()
-    return "_1m" in t or t.endswith("1m")
+from plotting.table_kind import is_minute_table
 
 
 def _default_bars_for_table(table: str, days: int) -> int:
     """日线默认 800；分钟表若未指定 --bars，按天数估算（避免只显示最近 ~800 分钟）。"""
-    if _is_minute_table(table):
+    if is_minute_table(table):
         return min(150_000, max(3_000, int(days * 500)))
     return 800
 
 
 def parse_args() -> PlotConfig:
+    """解析 ``sys.argv``，合并环境变量与 ``config.load_ddb_config`` 默认值。"""
     ddb_cfg = load_ddb_config()
     parser = argparse.ArgumentParser(description="使用 lightweight-charts 展示多代码对比")
     parser.add_argument("--ticker", help="单个股票代码，例如 AAPL")

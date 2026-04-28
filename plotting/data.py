@@ -1,12 +1,10 @@
+"""DolphinDB 行情读取与 JSON 载荷构造（供 TradingView Lightweight Charts 前端使用）。"""
+
 import dolphindb as ddb
 import pandas as pd
 
 from plotting.models import PlotConfig
-
-
-def _table_is_minute(table: str) -> bool:
-    t = (table or "").lower()
-    return "_1m" in t or t.endswith("1m")
+from plotting.table_kind import is_minute_table
 
 
 def ddb_escape(text: str) -> str:
@@ -14,6 +12,7 @@ def ddb_escape(text: str) -> str:
 
 
 def fetch_stock_data(cfg: PlotConfig) -> pd.DataFrame:
+    """按 ``cfg.days``、``cfg.tickers`` 拉取 OHLCV；再按 ticker 保留最近 ``cfg.bars`` 根。"""
     s = ddb.session()
     s.connect(cfg.host, cfg.port, cfg.user, cfg.password)
     db = ddb_escape(cfg.db_path)
@@ -43,6 +42,7 @@ order by window_start desc
 
 
 def to_unix_seconds(ts) -> int | None:
+    """时间戳转 Unix 秒（UTC），供前端 ``time`` 字段使用。"""
     if pd.isna(ts):
         return None
     t = pd.Timestamp(ts)
@@ -126,6 +126,7 @@ def _candles_volumes_for_ticker(g: pd.DataFrame) -> tuple[list[dict], list[dict]
 
 
 def build_payload(df: pd.DataFrame, cfg: PlotConfig) -> dict:
+    """将 DataFrame 转为单页应用所需的 ``compare*`` / ``candles_by_ticker`` / ``meta`` 结构。"""
     tickers = sorted(df["ticker"].unique().tolist())
     compare_close: dict[str, list[dict]] = {}
     compare_high: dict[str, list[dict]] = {}
@@ -156,7 +157,7 @@ def build_payload(df: pd.DataFrame, cfg: PlotConfig) -> dict:
             "base_ticker": base_ticker,
             "days": cfg.days,
             "bars": cfg.bars,
-            "intraday": _table_is_minute(cfg.table),
+            "intraday": is_minute_table(cfg.table),
         },
         "compare": {
             "high": compare_high,

@@ -1,3 +1,5 @@
+"""极简 HTTP 服务：首页 HTML、``/api/data`` JSON、``/static`` 静态资源（含 LWC）。"""
+
 import json
 import mimetypes
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -27,12 +29,14 @@ def _safe_static_file(relative: str) -> Path | None:
 
 
 def build_html(cfg: PlotConfig) -> str:
+    """注入页面标题后返回 ``tv_compare.html`` 全文。"""
     raw = _TEMPLATE_PATH.read_text(encoding="utf-8")
     title = f"TV Compare - {','.join(cfg.tickers)}"
     return raw.replace("__PAGE_TITLE__", title)
 
 
 def run_web(payload: dict, cfg: PlotConfig) -> None:
+    """启动线程化 HTTP 服务器，内存中持有只读 ``payload`` 直至进程结束。"""
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             p = urlparse(self.path).path

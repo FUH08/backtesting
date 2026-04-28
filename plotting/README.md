@@ -1,19 +1,18 @@
-# Plotting 模块
+# plotting — 查询与前端
 
-该目录集中放置画图相关逻辑，避免单文件过大，便于维护。
+从 DolphinDB 拉取 OHLCV，组装 JSON，由内置 HTTP 服务提供 `tv_compare.html`（Lightweight Charts）。
 
-## 文件说明
+| 文件 | 说明 |
+|------|------|
+| `app.py` | 编排：解析参数 → 查库 → `run_web` |
+| `cli.py` | 命令行 → `PlotConfig` |
+| `data.py` | `fetch_stock_data`、`build_payload` |
+| `models.py` | `PlotConfig` |
+| `table_kind.py` | 表名判断分钟/日线（默认 bars、前端 intraday） |
+| `web.py` | `/`、`/api/data`、`/static/*` |
+| `templates/` | HTML 模板 |
+| `static/` | LWC 独立脚本等 |
 
-- `models.py`：配置数据结构（`PlotConfig`）
-- `cli.py`：命令行参数解析
-- `data.py`：DolphinDB 数据查询与图表数据 payload 组装
-- `web.py`：HTTP 服务与模板加载
-- `templates/tv_compare.html`：TradingView lightweight-charts 页面模板
-- `app.py`：主流程编排（parse -> fetch -> run）
+DolphinDB 连接配置见 [config/](../config/) 包。
 
-根目录 `plot_single_stock.py` 仅保留入口转发：
-
-```python
-from plotting.app import main
-```
-
+仓库总览见上级目录 [README.md](../README.md)。

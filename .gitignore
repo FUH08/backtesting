@@ -13,15 +13,17 @@ venv/
 dist/
 build/
 
-# Local DolphinDB / secrets（复制 config.example.py 为 config.py 后修改）
+# 本机 DolphinDB 覆盖（复制 config/local.example.py 为 local.py）
+config/local.py
+# 若仍保留根目录 config.py 会与 config/ 包冲突，勿提交
 config.py
 
 # Local / cache
 .ddb_ticker_cache/
 *.log
 
-# Optional: import progress (uncomment if you do not want it in repo)
-# massive_import_checkpoint.json
+# 导入断点（本机进度，一般不提交）
+ingestion/massive_import_checkpoint.json
 
 # Editor / IDE
 .idea/

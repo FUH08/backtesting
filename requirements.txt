@@ -1,0 +1,3 @@
+# DolphinDB Python API（需与本机 DolphinDB 服务器版本匹配）
+dolphindb>=3.0.0
+pandas>=2.0.0
